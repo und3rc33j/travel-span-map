@@ -66,6 +66,24 @@
     font-weight:600;
   }
 
+  #closeSidebar {
+    display: none;
+    position: sticky;
+    top: -14px;
+    margin: -14px -14px 8px -14px;
+    padding: 10px 12px;
+    text-align: right;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(#fff, #fff);
+  }
+  #closeSidebar button {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #fff;
+    padding: 8px 10px;
+    font-size: 14px;
+  }
+
   @media (max-width: 900px) {
     #app { grid-template-columns: 1fr; }
     #sidebar {
@@ -82,6 +100,7 @@
       border-right: 1px solid var(--border);
     }
     #sidebar.open { transform: translateX(0); }
+    #closeSidebar { display: block; }
     #overlay {
       content: "";
       position: fixed;
@@ -99,6 +118,7 @@
 <body>
 <div id="app">
   <div id="sidebar">
+    <div id="closeSidebar"><button id="closeBtn" aria-label="Close controls">✕ Close</button></div>
     <h1>My Travel Span</h1>
     <div class="muted">Enter your northernmost, southernmost, easternmost, and westernmost places to draw the tightest bounding box and estimate how much of Earth it covers.</div>
 
@@ -175,11 +195,14 @@
       const container = L.DomUtil.create('div', 'leaflet-control leaflet-control-toggle');
       const link = L.DomUtil.create('a', '', container);
       link.href = '#';
-      link.title = 'Open controls';
+      link.title = 'Toggle controls';
       link.textContent = 'Controls';
       L.DomEvent.on(link, 'click', (e)=>{
         e.preventDefault();
-        toggleSidebar(true);
+        if (window.matchMedia('(max-width: 900px)').matches) {
+          const isOpen = document.getElementById('sidebar').classList.contains('open');
+          toggleSidebar(!isOpen);
+        }
       });
       return container;
     },
@@ -200,9 +223,8 @@
     setTimeout(()=> map.invalidateSize(), 260);
   }
   document.getElementById('overlay').addEventListener('click', ()=> toggleSidebar(false));
-  document.addEventListener('keydown', (e)=>{
-    if (e.key === 'Escape') toggleSidebar(false);
-  });
+  document.getElementById('closeBtn').addEventListener('click', ()=> toggleSidebar(false));
+  document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape') toggleSidebar(false); });
 
   function parseNum(v) { const n = Number(v); return Number.isFinite(n) ? n : null; }
   function normalizeLon(lon) { return ((lon + 180) % 360 + 360) % 360 - 180; }
@@ -234,8 +256,7 @@
   function km2ForFraction(frac){ return frac * 510_072_000; }
   const fmtPct = (p)=> p.toLocaleString(undefined, {maximumFractionDigits:2});
   const fmtKm2 = (k)=> k.toLocaleString(undefined, {maximumFractionDigits:0});
-
-  function varDanger(){ return getComputedStyle(document.documentElement).getPropertyValue('--danger').trim() || '#e11d48'; }
+  const varDanger = ()=> getComputedStyle(document.documentElement).getPropertyValue('--danger').trim() || '#e11d48';
 
   function draw(points) {
     markerLayer.clearLayers();
