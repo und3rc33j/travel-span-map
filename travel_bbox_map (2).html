@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>My Travel Span — Responsive</title>
+<title>My Travel Span — Responsive + Place Lookup</title>
 <link
   rel="stylesheet"
   href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -39,9 +39,9 @@
 
   h1 { font-size: 18px; margin: 0 0 8px; }
   .muted { color: var(--muted); font-size: 13px; }
-  .row { display:flex; gap:8px; margin-bottom:8px; }
+  .row { display:flex; gap:8px; margin-bottom:8px; align-items: center; }
   .row > input, .row > textarea { flex: 1; padding:12px 12px; border:1px solid #d1d5db; border-radius:10px; font-size:14px; }
-  .btn { padding:12px 14px; border: 1px solid #d1d5db; border-radius: 12px; cursor: pointer; font-size:14px; }
+  .btn { padding:10px 12px; border: 1px solid #d1d5db; border-radius: 10px; cursor: pointer; font-size:14px; }
   .btn.primary { background:var(--accent); color:white; border-color:var(--accent); }
   .btn.ghost { background:#f5f5f5; }
   .btn.block { width:100%; }
@@ -84,6 +84,17 @@
     font-size: 14px;
   }
 
+  /* Simple dropdown for geocoder suggestions */
+  .suggest { position: relative; }
+  .suggest-list {
+    position: absolute; top: 100%; left: 0; right: 0;
+    background: #fff; border:1px solid var(--border); border-radius:10px;
+    margin-top:4px; max-height: 220px; overflow: auto; z-index: 1100;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.08);
+  }
+  .suggest-item { padding:8px 10px; cursor: pointer; font-size: 13px; }
+  .suggest-item:hover { background:#f3f4f6; }
+
   @media (max-width: 900px) {
     #app { grid-template-columns: 1fr; }
     #sidebar {
@@ -120,31 +131,47 @@
   <div id="sidebar">
     <div id="closeSidebar"><button id="closeBtn" aria-label="Close controls">✕ Close</button></div>
     <h1>My Travel Span</h1>
-    <div class="muted">Enter your northernmost, southernmost, easternmost, and westernmost places to draw the tightest bounding box and estimate how much of Earth it covers.</div>
+    <div class="muted">Enter or look up your northernmost, southernmost, easternmost, and westernmost places. We’ll draw the tightest bounding box and estimate how much of Earth it covers.</div>
 
     <div class="card">
-      <div class="row"><input id="nameN" placeholder="Northernmost place (e.g., Reykjavik)" /></div>
+      <div class="row suggest">
+        <input id="nameN" placeholder="Northernmost place (e.g., Reykjavik)" />
+        <button class="btn" data-lookup="N">Lookup</button>
+        <div id="suggN" class="suggest-list" style="display:none;"></div>
+      </div>
       <div class="row">
-        <input id="latN" inputmode="decimal" placeholder="Latitude (e.g., 64.1466)" />
-        <input id="lonN" inputmode="decimal" placeholder="Longitude (e.g., -21.9426)" />
+        <input id="latN" inputmode="decimal" placeholder="Latitude" />
+        <input id="lonN" inputmode="decimal" placeholder="Longitude" />
       </div>
 
-      <div class="row"><input id="nameS" placeholder="Southernmost place (e.g., Cape Town)" /></div>
+      <div class="row suggest">
+        <input id="nameS" placeholder="Southernmost place (e.g., Cape Town)" />
+        <button class="btn" data-lookup="S">Lookup</button>
+        <div id="suggS" class="suggest-list" style="display:none;"></div>
+      </div>
       <div class="row">
-        <input id="latS" inputmode="decimal" placeholder="Latitude (e.g., -33.9249)" />
-        <input id="lonS" inputmode="decimal" placeholder="Longitude (e.g., 18.4241)" />
+        <input id="latS" inputmode="decimal" placeholder="Latitude" />
+        <input id="lonS" inputmode="decimal" placeholder="Longitude" />
       </div>
 
-      <div class="row"><input id="nameE" placeholder="Easternmost place (e.g., Tokyo)" /></div>
+      <div class="row suggest">
+        <input id="nameE" placeholder="Easternmost place (e.g., Tokyo)" />
+        <button class="btn" data-lookup="E">Lookup</button>
+        <div id="suggE" class="suggest-list" style="display:none;"></div>
+      </div>
       <div class="row">
-        <input id="latE" inputmode="decimal" placeholder="Latitude (e.g., 35.6762)" />
-        <input id="lonE" inputmode="decimal" placeholder="Longitude (e.g., 139.6503)" />
+        <input id="latE" inputmode="decimal" placeholder="Latitude" />
+        <input id="lonE" inputmode="decimal" placeholder="Longitude" />
       </div>
 
-      <div class="row"><input id="nameW" placeholder="Westernmost place (e.g., San Francisco)" /></div>
+      <div class="row suggest">
+        <input id="nameW" placeholder="Westernmost place (e.g., San Francisco)" />
+        <button class="btn" data-lookup="W">Lookup</button>
+        <div id="suggW" class="suggest-list" style="display:none;"></div>
+      </div>
       <div class="row">
-        <input id="latW" inputmode="decimal" placeholder="Latitude (e.g., 37.7749)" />
-        <input id="lonW" inputmode="decimal" placeholder="Longitude (e.g., -122.4194)" />
+        <input id="latW" inputmode="decimal" placeholder="Latitude" />
+        <input id="lonW" inputmode="decimal" placeholder="Longitude" />
       </div>
 
       <div class="row stack">
@@ -170,7 +197,7 @@
     </div>
 
     <div class="muted" style="margin-top:8px;">
-      Built with Leaflet. Basemap © OpenStreetMap / Carto. No data is sent to a server.
+      Built with Leaflet + Nominatim (OSM) for place lookup. All logic runs in your browser.
     </div>
   </div>
   <div id="map"></div>
@@ -226,6 +253,7 @@
   document.getElementById('closeBtn').addEventListener('click', ()=> toggleSidebar(false));
   document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape') toggleSidebar(false); });
 
+  // Helpers
   function parseNum(v) { const n = Number(v); return Number.isFinite(n) ? n : null; }
   function normalizeLon(lon) { return ((lon + 180) % 360 + 360) % 360 - 180; }
   function shortestLonSpan(lons) {
@@ -257,6 +285,56 @@
   const fmtPct = (p)=> p.toLocaleString(undefined, {maximumFractionDigits:2});
   const fmtKm2 = (k)=> k.toLocaleString(undefined, {maximumFractionDigits:0});
   const varDanger = ()=> getComputedStyle(document.documentElement).getPropertyValue('--danger').trim() || '#e11d48';
+
+  // Simple geocoder using Nominatim
+  async function geocode(q) {
+    if (!q || !q.trim()) return [];
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&q=${encodeURIComponent(q.trim())}`;
+    const res = await fetch(url, {
+      headers: { 'Accept-Language': navigator.language || 'en' }
+    });
+    if (!res.ok) return [];
+    return await res.json();
+  }
+  function attachLookup(idPrefix) {
+    const nameEl = document.getElementById('name'+idPrefix);
+    const latEl = document.getElementById('lat'+idPrefix);
+    const lonEl = document.getElementById('lon'+idPrefix);
+    const suggEl = document.getElementById('sugg'+idPrefix);
+    const btn = document.querySelector(`[data-lookup="${idPrefix}"]`);
+
+    async function doLookup(){
+      suggEl.style.display = 'none';
+      suggEl.innerHTML = '';
+      const q = nameEl.value;
+      const results = await geocode(q);
+      if (!results.length) { suggEl.style.display = 'none'; return; }
+      results.forEach(r => {
+        const item = document.createElement('div');
+        item.className = 'suggest-item';
+        item.textContent = r.display_name;
+        item.addEventListener('click', ()=>{
+          latEl.value = r.lat;
+          lonEl.value = r.lon;
+          // Keep user's label but you could also set: nameEl.value = r.display_name;
+          suggEl.style.display = 'none';
+          suggEl.innerHTML = '';
+        });
+        suggEl.appendChild(item);
+      });
+      suggEl.style.display = 'block';
+    }
+
+    btn.addEventListener('click', (e)=>{ e.preventDefault(); doLookup(); });
+    nameEl.addEventListener('keydown', (e)=>{ if (e.key==='Enter') { e.preventDefault(); doLookup(); } });
+    // Hide suggestions if clicking elsewhere
+    document.addEventListener('click', (e)=>{
+      if (!suggEl.contains(e.target) && e.target !== nameEl && e.target !== btn) {
+        suggEl.style.display = 'none';
+      }
+    });
+  }
+  ['N','S','E','W'].forEach(attachLookup);
 
   function draw(points) {
     markerLayer.clearLayers();
@@ -316,6 +394,7 @@
     `;
   }
 
+  // Plot handlers
   document.getElementById('plotBtn').addEventListener('click', ()=>{
     const pts = [
       {name: document.getElementById('nameN').value || 'North', lat: parseNum(document.getElementById('latN').value), lon: parseNum(document.getElementById('lonN').value)},
@@ -357,6 +436,7 @@
     if (window.matchMedia('(max-width: 900px)').matches) toggleSidebar(false);
   });
 
+  // Demo
   const demo = [
     {name:'North (Reykjavik)', lat: 64.1466, lon: -21.9426},
     {name:'South (Cape Town)', lat: -33.9249, lon: 18.4241},
