@@ -1,0 +1,308 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>My Travel Span — Extreme Points, Bounding Box & Coverage</title>
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+  crossorigin=""
+/>
+<style>
+  html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+  #app { display: grid; grid-template-columns: 360px 1fr; height: 100%; }
+  #sidebar { padding: 16px; border-right: 1px solid #ddd; overflow:auto; }
+  #map { height: 100%; }
+  h1 { font-size: 18px; margin: 0 0 8px; }
+  .muted { color: #666; font-size: 12px; }
+  .row { display:flex; gap:8px; margin-bottom:6px; }
+  .row > input, .row > select { flex: 1; padding:6px 8px; border:1px solid #ccc; border-radius:6px; }
+  .btn { padding:8px 10px; border: none; border-radius: 8px; cursor: pointer; }
+  .btn.primary { background:#1f6feb; color:white; }
+  .btn.ghost { background:#f5f5f5; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#eef2ff; color:#3730a3; font-size:12px; }
+  .small { font-size: 12px; }
+  .card { background:#fafafa; border:1px solid #eee; border-radius:10px; padding:10px; margin-top:10px; }
+  .hint { font-size:12px; color:#444; }
+  code.inline { background:#f0f0f0; padding:2px 6px; border-radius:6px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <h1>My Travel Span</h1>
+    <div class="muted">Plot your northernmost, southernmost, easternmost, and westernmost places. We'll draw the tightest world-spanning box that encloses them and estimate how much of Earth it covers.</div>
+
+    <div class="card">
+      <div class="row">
+        <input id="nameN" placeholder="Northernmost place name (e.g., Reykjavik)" />
+      </div>
+      <div class="row">
+        <input id="latN" placeholder="Latitude (e.g., 64.1466)" />
+        <input id="lonN" placeholder="Longitude (e.g., -21.9426)" />
+      </div>
+
+      <div class="row">
+        <input id="nameS" placeholder="Southernmost place name (e.g., Cape Town)" />
+      </div>
+      <div class="row">
+        <input id="latS" placeholder="Latitude (e.g., -33.9249)" />
+        <input id="lonS" placeholder="Longitude (e.g., 18.4241)" />
+      </div>
+
+      <div class="row">
+        <input id="nameE" placeholder="Easternmost place name (e.g., Tokyo)" />
+      </div>
+      <div class="row">
+        <input id="latE" placeholder="Latitude (e.g., 35.6762)" />
+        <input id="lonE" placeholder="Longitude (e.g., 139.6503)" />
+      </div>
+
+      <div class="row">
+        <input id="nameW" placeholder="Westernmost place name (e.g., San Francisco)" />
+      </div>
+      <div class="row">
+        <input id="latW" placeholder="Latitude (e.g., 37.7749)" />
+        <input id="lonW" placeholder="Longitude (e.g., -122.4194)" />
+      </div>
+
+      <div class="row">
+        <button class="btn primary" id="plotBtn">Plot & Draw Box</button>
+        <button class="btn ghost" id="resetBtn">Reset</button>
+      </div>
+      <div class="hint">
+        Tip: If your east/west points straddle the Pacific, we'll wrap across the 180° meridian to keep the box tight.
+      </div>
+    </div>
+
+    <div class="card small">
+      <div><span class="pill">Output</span></div>
+      <div id="bboxInfo" style="margin-top:6px;"></div>
+      <div id="areaInfo" style="margin-top:6px;"></div>
+    </div>
+
+    <div class="card small">
+      <div><span class="pill">Data format</span></div>
+      <div class="hint" style="margin-top:6px;">
+        If you prefer, paste four lines of CSV below in the order N,S,E,W like:<br/>
+        <code class="inline">name,lat,lon</code>
+      </div>
+      <textarea id="csvInput" rows="6" style="width:100%; margin-top:6px; padding:8px; border:1px solid #ccc; border-radius:8px;"></textarea>
+      <div class="row" style="margin-top:6px;">
+        <button class="btn" id="loadCsvBtn">Load CSV</button>
+      </div>
+    </div>
+
+    <div class="muted" style="margin-top:8px;">
+      Built with Leaflet. Basemap © OpenStreetMap / Carto. No location data leaves this file.
+    </div>
+  </div>
+  <div id="map"></div>
+</div>
+
+<script
+  src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+  crossorigin=""></script>
+<script>
+  // Basic Leaflet map
+  const map = L.map('map', { worldCopyJump: true }).setView([20, 0], 2);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> & <a href="https://carto.com/">Carto</a>'
+  }).addTo(map);
+
+  const markerLayer = L.layerGroup().addTo(map);
+  let bboxLayer = L.layerGroup().addTo(map);
+
+  function parseNum(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function normalizeLon(lon) {
+    // Normalize to [-180,180)
+    let x = ((lon + 180) % 360 + 360) % 360 - 180;
+    return x;
+  }
+
+  function shortestLonSpan(lons) {
+    // Find shortest circular arc covering all longitudes
+    const xs = lons.map(normalizeLon).sort((a,b)=>a-b);
+    // duplicate with +360 to handle wrap
+    const ext = xs.concat(xs.map(x=>x+360));
+    let bestSpan = Infinity;
+    let bestPair = [xs[0], xs[0]];
+    let i=0, j=0;
+    while (i < xs.length) {
+      while (j < ext.length && ext[j] - ext[i] <= 360) j++;
+      if (j - i >= xs.length) {
+        const span = ext[i+xs.length-1] - ext[i];
+        if (span < bestSpan) {
+          bestSpan = span;
+          bestPair = [ext[i], ext[i+xs.length-1]];
+        }
+        i++;
+      } else {
+        i++;
+      }
+    }
+    return [normalizeLon(bestPair[0]), normalizeLon(bestPair[1])];
+  }
+
+  function toRad(deg){ return deg * Math.PI / 180; }
+
+  function earthCoveragePercent(minLat, maxLat, minLon, maxLon){
+    // Compute shortest span of longitude in degrees (handles wrap)
+    let lonSpan = maxLon - minLon;
+    if (lonSpan < 0) lonSpan += 360;
+    const dLambda = toRad(lonSpan);
+    const sinPhi2 = Math.sin(toRad(maxLat));
+    const sinPhi1 = Math.sin(toRad(minLat));
+    // Fraction of sphere area: (Δλ * (sin φ2 - sin φ1)) / (4π)
+    const frac = (dLambda * (sinPhi2 - sinPhi1)) / (4 * Math.PI);
+    return Math.max(0, Math.min(1, frac));
+  }
+
+  function km2ForFraction(frac){
+    const earth_km2 = 510_072_000; // km²
+    return frac * earth_km2;
+  }
+
+  function fmtPct(p){ return p.toLocaleString(undefined, {maximumFractionDigits:2}); }
+  function fmtKm2(km2){ return km2.toLocaleString(undefined, {maximumFractionDigits:0}); }
+
+  function draw(points) {
+    markerLayer.clearLayers();
+    bboxLayer.clearLayers();
+
+    // Add markers
+    points.forEach(p => {
+      const m = L.marker([p.lat, p.lon]).addTo(markerLayer)
+        .bindPopup(`<b>${p.name}</b><br>${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}`);
+      const lbl = L.tooltip({permanent:true, direction:'right', offset:[8,0]})
+        .setContent(p.name)
+        .setLatLng([p.lat, p.lon]);
+      markerLayer.addLayer(lbl);
+    });
+
+    const lats = points.map(p=>p.lat);
+    const lons = points.map(p=>p.lon);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+
+    // Compute shortest longitudinal span enclosing all longitudes
+    const [minLonShort, maxLonShort] = shortestLonSpan(lons);
+    // Handle wrap across antimeridian by drawing 1 or 2 rectangles/polylines
+    let segments = [];
+    if (minLonShort <= maxLonShort) {
+      segments.push([minLonShort, maxLonShort]);
+    } else {
+      // wraps around: split into two
+      segments.push([-180, maxLonShort]);
+      segments.push([minLonShort, 180]);
+    }
+
+    // Coverage numbers
+    const frac = earthCoveragePercent(minLat, maxLat, minLonShort, maxLonShort);
+    const pct = frac * 100;
+    const km2 = km2ForFraction(frac);
+
+    // Draw rectangles as polygons for each segment, with hover tooltip
+    const tooltipHtml = `<b>Bounding Box</b><br/>~ ${fmtPct(pct)}% of Earth<br/>≈ ${fmtKm2(km2)} km²`;
+    const polys = [];
+    segments.forEach(([lo1, lo2]) => {
+      const poly = L.polygon(
+        [[minLat, lo1], [minLat, lo2], [maxLat, lo2], [maxLat, lo1]],
+        {color:'#e11d48', weight:2, fill:false, dashArray:'6 4'}
+      ).bindTooltip(tooltipHtml, {sticky:true});
+      polys.push(poly.addTo(bboxLayer));
+      // Bring to front on hover for clarity
+      poly.on('mouseover', () => poly.bringToFront());
+    });
+
+    // Fit bounds to polygons and markers
+    const all = L.featureGroup([...polys, markerLayer]);
+    map.fitBounds(all.getBounds().pad(0.2));
+
+    // Update numeric info in sidebar
+    const info = document.getElementById('bboxInfo');
+    let lonSpan = maxLonShort - minLonShort;
+    if (lonSpan < 0) lonSpan += 360;
+    info.innerHTML = `
+      <div><b>Bounding Box</b></div>
+      <div>Lat: <code class="inline">${minLat.toFixed(4)} to ${maxLat.toFixed(4)}</code></div>
+      <div>Lon (shortest span): <code class="inline">${minLonShort.toFixed(4)} to ${maxLonShort.toFixed(4)}</code> (${lonSpan.toFixed(2)}°)</div>
+    `;
+
+    document.getElementById('areaInfo').innerHTML = `
+      <div><b>Coverage</b></div>
+      <div>~ <code class="inline">${fmtPct(pct)}%</code> of Earth's surface</div>
+      <div class="muted">≈ ${fmtKm2(km2)} km²</div>
+      <div class="hint">Method: spherical surface area for a lat/long rectangle using the shortest longitudinal span (antimeridian-aware).</div>
+    `;
+  }
+
+  // Hook up buttons
+  document.getElementById('plotBtn').addEventListener('click', ()=>{
+    const pts = [
+      {name: document.getElementById('nameN').value || 'North', lat: parseNum(document.getElementById('latN').value), lon: parseNum(document.getElementById('lonN').value)},
+      {name: document.getElementById('nameS').value || 'South', lat: parseNum(document.getElementById('latS').value), lon: parseNum(document.getElementById('lonS').value)},
+      {name: document.getElementById('nameE').value || 'East',  lat: parseNum(document.getElementById('latE').value), lon: parseNum(document.getElementById('lonE').value)},
+      {name: document.getElementById('nameW').value || 'West',  lat: parseNum(document.getElementById('lonW').value) /* bugfix: lat from lonW? We'll fix below */, lon: parseNum(document.getElementById('lonW').value)},
+    ];
+    // Fix typo above: use latW
+    pts[3].lat = parseNum(document.getElementById('latW').value);
+
+    if (pts.some(p => p.lat === null || p.lon === null)) {
+      alert('Please provide valid numbers for all latitudes and longitudes.');
+      return;
+    }
+    // Clamp latitudes and normalize longitudes
+    pts.forEach(p => {
+      p.lat = Math.max(-90, Math.min(90, p.lat));
+      p.lon = normalizeLon(p.lon);
+    });
+    draw(pts);
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', ()=>{
+    markerLayer.clearLayers();
+    bboxLayer.clearLayers();
+    map.setView([20,0], 2);
+    document.getElementById('bboxInfo').innerHTML = '';
+    document.getElementById('areaInfo').innerHTML = '';
+  });
+
+  document.getElementById('loadCsvBtn').addEventListener('click', ()=>{
+    const txt = document.getElementById('csvInput').value.trim();
+    if (!txt) return;
+    const lines = txt.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+    if (lines.length < 4) { alert('Need four lines: N, S, E, W. Each line: name,lat,lon'); return; }
+    const ids = ['N','S','E','W'];
+    const mapIdToName = {N:'North', S:'South', E:'East', W:'West'};
+    const pts = [];
+    for (let i=0;i<4;i++){
+      const parts = lines[i].split(',').map(s=>s.trim());
+      if (parts.length < 3) { alert('Each line must be: name,lat,lon'); return; }
+      const [name, latStr, lonStr] = parts;
+      const lat = Number(latStr), lon = Number(lonStr);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) { alert('Lat/Lon must be numbers'); return; }
+      pts.push({name: name || mapIdToName[ids[i]], lat: Math.max(-90, Math.min(90, lat)), lon: normalizeLon(lon)});
+    }
+    draw(pts);
+  });
+
+  // Optional demo values so the map isn't empty
+  const demo = [
+    {name:'North (Reykjavik)', lat: 64.1466, lon: -21.9426},
+    {name:'South (Cape Town)', lat: -33.9249, lon: 18.4241},
+    {name:'East (Tokyo)', lat: 35.6762, lon: 139.6503},
+    {name:'West (San Francisco)', lat: 37.7749, lon: -122.4194},
+  ];
+  draw(demo);
+</script>
+</body>
+</html>
